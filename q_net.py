@@ -8,10 +8,10 @@ import chainer.functions as F
 
 class QNet:
     # Hyper-Parameters
-    gamma = 0.39  # Discount factor #-------0.99
-    initial_exploration = 10**3  # Initial exploratoin. original: 5x10^4
+    gamma = 0.99  # Discount factor #-------0.99---0.39--0.99
+    initial_exploration = 10**4  # Initial exploratoin. original: 5x10^4
     replay_size = 32  # Replay (batch) size
-    target_model_update_freq = 10**1  # Target update frequancy. original: 10^4#------------------
+    target_model_update_freq = 10**4  # Target update frequancy. original: 10^4#------
     data_size = 10**5  # Data size of history. original: 10^6
     hist_size = 1 #original: 4
 
@@ -23,9 +23,9 @@ class QNet:
 
         print("Initializing Q-Network...")
 
-        hidden_dim = 128# 256--128---
+        hidden_dim = 256# 256--128---256
         self.model = FunctionSet(
-            l4=F.Linear(self.dim*self.hist_size, hidden_dim),#,-
+            l4=F.Linear(self.dim*self.hist_size, hidden_dim, wscale=np.sqrt(2)),#wscall=np.sqrt(2)---None--
             q_value=F.Linear(hidden_dim, self.num_of_actions,
                              initialW=np.zeros((self.num_of_actions, hidden_dim),
                                                dtype=np.float32))
@@ -34,11 +34,11 @@ class QNet:
             self.model.to_gpu()
 
         self.model_target = copy.deepcopy(self.model)
-        self.optimizer = optimizers.Adam(alpha=0.005, beta1=0.9, beta2=0.999, eps=1e-08)#alpha=0.0015---0.0125
-        #self.optimizer = optimizers.RMSpropGraves(lr=0.00025, alpha=0.95, momentum=0.95, eps=0.0001)
+        #self.optimizer = optimizers.Adam(alpha=0.001, beta1=0.9, beta2=0.999, eps=1e-08)#alpha=0.0015-0.0125-0.005-0.001
+        self.optimizer = optimizers.RMSpropGraves(lr=0.00025, alpha=0.95, momentum=0.95, eps=0.0001)
         self.optimizer.setup(self.model.collect_parameters())
 
-        # History Data :  D=[s, a, r, s_dash, end_episode_flag]r, int8
+        # History Data :  D=[s, a, r, s_dash, end_episode_flag]r, int8----------------------------------------
         self.d = [np.zeros((self.data_size, self.hist_size, self.dim), dtype=np.uint8),
                   np.zeros(self.data_size, dtype=np.uint8),
                   np.zeros((self.data_size, 1), dtype=np.float32),
@@ -46,7 +46,8 @@ class QNet:
                   np.zeros((self.data_size, 1), dtype=np.bool)]
 
     def forward(self, state, action, reward, state_dash, episode_end):
-        num_of_batch = state.shape[0]#188行s_replay = np.ndarray(shape=(self.replay_size, self.hist_size, self.dim), dtype=np.float32) =32
+        num_of_batch = state.shape[0]#188行s_replay = np.ndarray(shape=(self.replay_size, self.hist_size, self.dim),
+                                     # dtype=np.float32) =32
         s = Variable(state)
         s_dash = Variable(state_dash)
 
@@ -92,20 +93,20 @@ class QNet:
     def stock_experience(self, time,
                         state, action, reward, state_dash,
                         episode_end_flag):#def agent_end
-        data_index = time % self.data_size
+        self.data_index = time % self.data_size#---------------------------------------------------data_index
 
         if episode_end_flag is True:
-            self.d[0][data_index] = state
-            self.d[1][data_index] = action
-            self.d[2][data_index] = reward
+            self.d[0][self.data_index] = state
+            self.d[1][self.data_index] = action
+            self.d[2][self.data_index] = reward
             #print d[2]
         else:
-            self.d[0][data_index] = state
-            self.d[1][data_index] = action
-            self.d[2][data_index] = reward
+            self.d[0][self.data_index] = state
+            self.d[1][self.data_index] = action
+            self.d[2][self.data_index] = reward
 
-            self.d[3][data_index] = state_dash
-        self.d[4][data_index] = episode_end_flag
+            self.d[3][self.data_index] = state_dash
+        self.d[4][self.data_index] = episode_end_flag
 
     def experience_replay(self, time):
         if self.initial_exploration < time:
@@ -124,8 +125,8 @@ class QNet:
                 s_replay[i] = np.asarray(self.d[0][replay_index[i]], dtype=np.float32)
                 a_replay[i] = self.d[1][replay_index[i]]
                 r_replay[i] = self.d[2][replay_index[i]]
-                if not (r_replay[i] == 1.):#--------------
-                    r_replay[i] = -.3#-----------------
+                # if not (r_replay[i] == 1.):#--------------
+                #     r_replay[i] = -3.#-----------------
                 s_dash_replay[i] = np.array(self.d[3][replay_index[i]], dtype=np.float32)
                 episode_end_replay[i] = self.d[4][replay_index[i]]
 
@@ -140,13 +141,13 @@ class QNet:
             self.optimizer.update()
 
     def q_func(self, state):
-        h4 = F.leaky_relu(self.model.l4(state / 255.0))#----------
-        dp4 = F.dropout(h4, ratio=0.4, train=True)#----------ratio=0.3
-        q = self.model.q_value(dp4)
+        h4 = F.relu(self.model.l4(state / 255.0))#---------- F.leaky_relu
+        #dp4 = F.dropout(h4, ratio=0.4, train=True)#----------ratio=0.3--0.4
+        q = self.model.q_value(h4)
         return q
 
     def q_func_target(self, state):
-        h4 = F.leaky_relu(self.model_target.l4(state / 255.0))#--------
+        h4 = F.relu(self.model_target.l4(state / 255.0))#--------F.leaky_
         #dp4 = F.dropout(h4, ratio=0.3, train=True)#------------- dp4 = F.dropout(h4, ratio=0.3, train=True)
         q = self.model_target.q_value(h4)#dp4
         return q

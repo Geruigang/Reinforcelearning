@@ -57,7 +57,7 @@ class CnnFeatureExtractor:
         if self.gpu >= 0:
             x_data=cuda.to_gpu(x_data)
         
-        x = chainer.Variable(x_data, volatile='on')#---
+        x = chainer.Variable(x_data, volatile=True)#---True,on,True
         feature = self.predict(x)
 
         if self.gpu >= 0:
